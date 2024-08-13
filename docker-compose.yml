@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "4000:5000"
+    volumes:
+      - .:/app
+      - ./spotify_downloader.db:/app/spotify_downloader.db
+    environment:
+      - FLASK_ENV=development
+
+  worker:
+    build: .
+    command: python main.py
+    volumes:
+      - .:/app
+      - ./spotify_downloader.db:/app/spotify_downloader.db

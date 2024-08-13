@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Queue Manager</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white">
+
+<div id="app" class="container mx-auto p-4">
+  <h1 class="text-2xl font-bold mb-4">Media Queue Manager</h1>
+
+  <!-- Add to Media Queue -->
+  <div class="mb-4">
+    <h2 class="text-xl font-semibold mb-2">Add to Media Queue</h2>
+    <input v-model="spotifyUrl" class="p-2 rounded bg-gray-800 text-white w-full" placeholder="Enter Spotify URL" />
+    <button @click="addToMediaQueue" class="mt-2 bg-blue-500 text-white py-2 px-4 rounded">Add</button>
+  </div>
+
+  <!-- List of Media Queues as a Table -->
+  <div v-if="mediaQueues.length" class="mb-4">
+    <h2 class="text-xl font-semibold mb-2">Media Queues</h2>
+    <table class="min-w-full bg-gray-800 rounded">
+      <thead>
+        <tr>
+          <th class="py-2 px-4">ID</th>
+          <th class="py-2 px-4">Spotify URL</th>
+          <th class="py-2 px-4">Parsed Status</th>
+          <th class="py-2 px-4">Created At</th>
+          <th class="py-2 px-4">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="queue in mediaQueues" :key="queue.id" class="hover:bg-gray-700">
+          <td class="py-2 px-4">{{ queue.id }}</td>
+          <td class="py-2 px-4"><a @click="getMediaQueueItems(queue.id)" class="text-blue-400 hover:underline cursor-pointer">{{ queue.spotify_url }}</a></td>
+          <td class="py-2 px-4">{{ queue.parsed_status }}</td>
+          <td class="py-2 px-4">{{ new Date(queue.created_at).toLocaleString() }}</td>
+          <td class="py-2 px-4">
+            <button @click="getMediaQueueItems(queue.id)" class="bg-green-500 text-white py-1 px-2 rounded">View Items</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- List of Media Queue Items as a Table with Actions -->
+  <div v-if="mediaQueueItems.length" class="mb-4">
+    <h2 class="text-xl font-semibold mb-2">Media Queue Items</h2>
+    <table class="min-w-full bg-gray-800 rounded">
+      <thead>
+        <tr>
+          <th class="py-2 px-4">ID</th>
+          <th class="py-2 px-4">Media URL</th>
+          <th class="py-2 px-4">Parsed Status</th>
+          <th class="py-2 px-4">Download Path</th>
+          <th class="py-2 px-4">Created At</th>
+          <th class="py-2 px-4">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="item in mediaQueueItems" :key="item.id" class="hover:bg-gray-700">
+          <td class="py-2 px-4">{{ item.id }}</td>
+          <td class="py-2 px-4"><a :href="item.media_url" class="text-blue-400 hover:underline">{{ item.media_url }}</a></td>
+          <td class="py-2 px-4">{{ item.parsed_status }}</td>
+          <td class="py-2 px-4">{{ item.download_path }}</td>
+          <td class="py-2 px-4">{{ new Date(item.created_at).toLocaleString() }}</td>
+          <td class="py-2 px-4">
+            <button @click="resetMediaQueueItem(item.id)" class="bg-yellow-500 text-white py-1 px-2 rounded mr-2">Reset</button>
+            <button @click="deleteMediaQueueItem(item.id)" class="bg-red-500 text-white py-1 px-2 rounded">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const { createApp } = Vue;
+
+  createApp({
+    data() {
+      return {
+        API_URL: '', // Base URL for the API
+        spotifyUrl: '',
+        mediaQueues: [],
+        mediaQueueItems: []
+      };
+    },
+    methods: {
+      async fetchMediaQueues() {
+        const response = await fetch(`${this.API_URL}/media_queue.json`);
+        this.mediaQueues = await response.json();
+      },
+      async addToMediaQueue() {
+        await fetch(`${this.API_URL}/add_to_media_queue.json`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ spotify_url: this.spotifyUrl })
+        });
+        this.spotifyUrl = '';
+        this.fetchMediaQueues();
+      },
+      async getMediaQueueItems(queueId) {
+        const response = await fetch(`${this.API_URL}/media_queue/${queueId}.json`);
+        this.mediaQueueItems = await response.json();
+      },
+      async resetMediaQueueItem(itemId) {
+        await fetch(`${this.API_URL}/media_queue_item/${itemId}/reset.json`, {
+          method: 'POST'
+        });
+        this.getMediaQueueItems(this.mediaQueueItems[0].media_queue_id);
+      },
+      async deleteMediaQueueItem(itemId) {
+        await fetch(`${this.API_URL}/media_queue_item/${itemId}.json`, {
+          method: 'DELETE'
+        });
+        this.getMediaQueueItems(this.mediaQueueItems[0].media_queue_id);
+      }
+    },
+    mounted() {
+      this.fetchMediaQueues();
+    }
+  }).mount('#app');
+</script>
+
+</body>
+</html>

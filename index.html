@@ -22,58 +22,70 @@
   <!-- List of Media Queues as a Table -->
   <div v-if="mediaQueues.length" class="mb-4">
     <h2 class="text-xl font-semibold mb-2">Media Queues</h2>
-    <table class="min-w-full bg-gray-800 rounded">
-      <thead>
-        <tr>
-          <th class="py-2 px-4">ID</th>
-          <th class="py-2 px-4">Spotify URL</th>
-          <th class="py-2 px-4">Parsed Status</th>
-          <th class="py-2 px-4">Created At</th>
-          <th class="py-2 px-4">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="queue in mediaQueues" :key="queue.id" class="hover:bg-gray-700">
-          <td class="py-2 px-4">{{ queue.id }}</td>
-          <td class="py-2 px-4"><a @click="getMediaQueueItems(queue.id)" class="text-blue-400 hover:underline cursor-pointer">{{ queue.spotify_url }}</a></td>
-          <td class="py-2 px-4">{{ queue.parsed_status }}</td>
-          <td class="py-2 px-4">{{ new Date(queue.created_at).toLocaleString() }}</td>
-          <td class="py-2 px-4">
-            <button @click="getMediaQueueItems(queue.id)" class="bg-green-500 text-white py-1 px-2 rounded">View Items</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="min-w-full bg-gray-800 rounded">
+        <thead>
+          <tr>
+            <th class="py-2 px-4">ID</th>
+            <th class="py-2 px-4">Spotify URL</th>
+            <th class="py-2 px-4">Parsed Status</th>
+            <th class="py-2 px-4">Created At</th>
+            <th class="py-2 px-4">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="queue in mediaQueues" :key="queue.id" class="hover:bg-gray-700">
+            <td class="py-2 px-4">{{ queue.id }}</td>
+            <td class="py-2 px-4"><a @click="getMediaQueueItems(queue.id)" class="text-blue-400 hover:underline cursor-pointer">{{ queue.spotify_url }}</a></td>
+            <td class="py-2 px-4">
+              <span :class="getQueueStatusClass(queue.parsed_status)" class="px-2 py-1 rounded-full text-xs font-semibold">
+                {{ getQueueStatusText(queue.parsed_status) }}
+              </span>
+            </td>
+            <td class="py-2 px-4">{{ new Date(queue.created_at).toLocaleString() }}</td>
+            <td class="py-2 px-4">
+              <button @click="getMediaQueueItems(queue.id)" class="bg-green-500 text-white py-1 px-2 rounded">View Items</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <!-- List of Media Queue Items as a Table with Actions -->
   <div v-if="mediaQueueItems.length" class="mb-4">
     <h2 class="text-xl font-semibold mb-2">Media Queue Items</h2>
-    <table class="min-w-full bg-gray-800 rounded">
-      <thead>
-        <tr>
-          <th class="py-2 px-4">ID</th>
-          <th class="py-2 px-4">Media URL</th>
-          <th class="py-2 px-4">Parsed Status</th>
-          <th class="py-2 px-4">Download Path</th>
-          <th class="py-2 px-4">Created At</th>
-          <th class="py-2 px-4">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="item in mediaQueueItems" :key="item.id" class="hover:bg-gray-700">
-          <td class="py-2 px-4">{{ item.id }}</td>
-          <td class="py-2 px-4"><a :href="item.media_url" class="text-blue-400 hover:underline">{{ item.media_url }}</a></td>
-          <td class="py-2 px-4">{{ item.parsed_status }}</td>
-          <td class="py-2 px-4">{{ item.download_path }}</td>
-          <td class="py-2 px-4">{{ new Date(item.created_at).toLocaleString() }}</td>
-          <td class="py-2 px-4">
-            <button @click="resetMediaQueueItem(item.id)" class="bg-yellow-500 text-white py-1 px-2 rounded mr-2">Reset</button>
-            <button @click="deleteMediaQueueItem(item.id)" class="bg-red-500 text-white py-1 px-2 rounded">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="min-w-full bg-gray-800 rounded">
+        <thead>
+          <tr>
+            <th class="py-2 px-4">ID</th>
+            <th class="py-2 px-4">Media URL</th>
+            <th class="py-2 px-4">Parsed Status</th>
+            <th class="py-2 px-4">Download Path</th>
+            <th class="py-2 px-4">Created At</th>
+            <th class="py-2 px-4">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in mediaQueueItems" :key="item.id" class="hover:bg-gray-700">
+            <td class="py-2 px-4">{{ item.id }}</td>
+            <td class="py-2 px-4"><a :href="item.media_url" class="text-blue-400 hover:underline">{{ item.media_url }}</a></td>
+            <td class="py-2 px-4">
+              <span :class="getItemStatusClass(item.parsed_status)" class="px-2 py-1 rounded-full text-xs font-semibold">
+                {{ getItemStatusText(item.parsed_status) }}
+              </span>
+            </td>
+            <td class="py-2 px-4">{{ item.download_path }}</td>
+            <td class="py-2 px-4">{{ new Date(item.created_at).toLocaleString() }}</td>
+            <td class="py-2 px-4">
+              <button @click="resetMediaQueueItem(item.id)" class="bg-yellow-500 text-white py-1 px-2 rounded mr-2">Reset</button>
+              <button @click="deleteMediaQueueItem(item.id)" class="bg-red-500 text-white py-1 px-2 rounded">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -120,6 +132,40 @@
           method: 'DELETE'
         });
         this.getMediaQueueItems(this.mediaQueueItems[0].media_queue_id);
+      },
+      getQueueStatusText(status) {
+        switch (status) {
+          case 0: return 'Waiting';
+          case 1: return 'Parsed';
+          case 3: return 'Done';
+          default: return 'Unknown';
+        }
+      },
+      getQueueStatusClass(status) {
+        switch (status) {
+          case 0: return 'bg-yellow-500 text-black';
+          case 1: return 'bg-blue-500 text-white';
+          case 3: return 'bg-green-500 text-white';
+          default: return 'bg-gray-500 text-white';
+        }
+      },
+      getItemStatusText(status) {
+        switch (status) {
+          case 0: return 'Waiting';
+          case 1: return 'Downloading';
+          case 3: return 'Done';
+          case 9: return 'Error';
+          default: return 'Unknown';
+        }
+      },
+      getItemStatusClass(status) {
+        switch (status) {
+          case 0: return 'bg-yellow-500 text-black';
+          case 1: return 'bg-blue-500 text-white';
+          case 3: return 'bg-green-500 text-white';
+          case 9: return 'bg-red-500 text-white';
+          default: return 'bg-gray-500 text-white';
+        }
       }
     },
     mounted() {

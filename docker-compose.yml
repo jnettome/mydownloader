@@ -17,3 +17,5 @@ services:
     volumes:
       - .:/app
       - ./spotify_downloader.db:/app/spotify_downloader.db
+      # make it work with our azuracast environment
+      # - ../media/:/azuracast_media

@@ -57,32 +57,6 @@ def setup_database():
         logging.error(f"Error setting up database: {str(e)}")
         logging.debug(traceback.format_exc())
 
-def parse_spotify_item(url):
-    # Determine whether the URL is an album or playlist
-    url_type = url.split('/')[-2]
-
-    # Extract the ID from the URL
-    id = url.split('/')[-1].split('?')[0]
-
-    # Authenticate with the Spotify API using client credentials
-    # client_id = os.environ.get('SPOTIFY_CLIENT_ID')
-    # client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET')
-    # auth_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
-    # sp = spotipy.Spotify(auth_manager=auth_manager)
-    sp = spotdl
-
-    # Get the details from the API
-    if url_type == "album":
-        album = sp.album(id)
-        artist = album['artists'][0]['name']
-        album_name = album['name']
-        return [(artist, album_name, id, url_type)] # Returns album id for albums
-    elif url_type == "playlist":
-        playlist = sp.playlist(id)
-        return [(track['track']['artists'][0]['name'], track['track']['album']['name'], track['track']['id'], url_type) for track in playlist['tracks']['items']]
-    else:
-        raise ValueError("URL must be an album or playlist")
-
 # Media Queue processing
 def add_to_media_queue(spotify_url):
     try:
@@ -207,20 +181,18 @@ def download_job():
                 queue_download_path = create_download_folder(queue_id)
                 c.execute("UPDATE media_queue SET download_path = ? WHERE id = ?", (queue_download_path, queue_id))
 
-            download_path = os.path.join(queue_download_path, f"track_{item_id}.mp3")
-
             c.execute("UPDATE media_queue_items SET parsed_status = 1, download_started_at = ?, updated_at = ? WHERE id = ?",
                       (datetime.now(), datetime.now(), item_id))
             conn.commit()
 
             try:
-                # os.chdir(queue_download_path)
+                # os.chdir(queue_queue_download_path)
 
                 # check if youtube cookies
                 if os.path.exists(youtube_cookies_path):
-                    os.system(f"spotdl download {media_url} --format mp3 --output {download_path} --cookie-file {youtube_cookies_path}")
+                    os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path} --cookie-file {youtube_cookies_path}")
                 else:
-                    os.system(f"spotdl download {media_url} --format mp3 --output {download_path}")
+                    os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path}")
 
 
                 #     os.system(f"spotdl download 'https://open.spotify.com/album/{id}'")  # Download the entire album
@@ -229,7 +201,7 @@ def download_job():
                 # os.chdir(music_directory)
 
                 c.execute("UPDATE media_queue_items SET parsed_status = 3, download_finished_at = ?, updated_at = ?, download_path = ? WHERE id = ?",
-                          (datetime.now(), datetime.now(), download_path, item_id))
+                          (datetime.now(), datetime.now(), queue_download_path, item_id))
                 conn.commit()
 
                 logging.info(f"Successfully downloaded: Item ID {item_id}, URL {media_url}")
@@ -272,6 +244,9 @@ def check_queue_status(queue_id):
             conn.commit()
             logging.info(f"All items in queue ID {queue_id} have been downloaded.")
 
+            # move the downloaded folder to mounted directory
+            os.system(f"mv downloads/queue_{queue_id} /media/")
+
         conn.close()
     except Exception as e:
         logging.error(f"Error checking queue status for queue ID {queue_id}: {str(e)}")
@@ -288,12 +263,12 @@ def main():
             process_media_queue()
             logging.info("Running download job...")
             download_job()
-            logging.info("Waiting for 60 seconds before next iteration...")
+            logging.info("Waiting for 15 seconds before next iteration...")
             time.sleep(15)  # Wait for 60 seconds before the next iteration
         except Exception as e:
             logging.error(f"Error in main loop: {str(e)}")
             logging.debug(traceback.format_exc())
-            logging.info("Waiting for 10 seconds before retrying...")
+            logging.info("Waiting for 5 seconds before retrying...")
             time.sleep(5)
 
 if __name__ == "__main__":

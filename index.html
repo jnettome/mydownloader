@@ -136,6 +136,7 @@
       getQueueStatusText(status) {
         switch (status) {
           case 0: return 'Waiting';
+          case 2: return 'Parsing';
           case 1: return 'Parsed';
           case 3: return 'Done';
           default: return 'Unknown';

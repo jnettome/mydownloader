@@ -6,6 +6,9 @@ import logging
 from spotdl import Spotdl
 import traceback
 
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,6 +20,8 @@ youtube_cookies_path = os.path.join(os.getcwd(), 'ytcookies.txt')
 
 # Initialize Spotdl only once
 spotdl = Spotdl(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
+auth_manager = SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET)
+sp = spotipy.Spotify(auth_manager=auth_manager)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -67,26 +72,6 @@ def setup_database():
         logging.debug(traceback.format_exc())
 
 # Media Queue processing
-def add_to_media_queue(spotify_url):
-    try:
-        conn = get_connection()
-        c = conn.cursor()
-
-        now = datetime.now()
-        c.execute("INSERT INTO media_queue (spotify_url, parsed_status, created_at, updated_at) VALUES (%s, 0, %s, %s) RETURNING id",
-                  (spotify_url, now, now))
-
-        queue_id = c.fetchone()[0]
-        conn.commit()
-        conn.close()
-
-        logging.info(f"Added new item to media queue: ID {queue_id}, URL {spotify_url}")
-        return queue_id
-    except Exception as e:
-        logging.error(f"Error adding to media queue: {str(e)}")
-        logging.debug(traceback.format_exc())
-        return None
-
 def process_media_queue():
     try:
         conn = get_connection()
@@ -100,19 +85,28 @@ def process_media_queue():
             queue_id, spotify_url = item
             logging.info(f"Processing media queue item: ID {queue_id}, URL {spotify_url}")
 
-            # Mark this item as in progress
+            # Mark this item as in progress - parsed_status=2 => parsing
             c.execute("UPDATE media_queue SET parsed_status = 2, updated_at = %s WHERE id = %s",
                       (datetime.now(), queue_id))
             conn.commit()
 
             media_type = detect_media_type(spotify_url)
 
+            # Extract the ID from the URL
+            id = spotify_url.split('/')[-1].split('?')[0]
+
             if media_type == 0:  # playlist
-                process_playlist(queue_id, spotify_url)
+                playlist = sp.playlist(id)
+                # playlist['description']
+                # playlist['followers']['total']
+                # playlist['images'][0]['url']
+                # playlist['name']
+                process_playlist(queue_id, playlist, id)
             elif media_type == 1:  # album
-                process_album(queue_id, spotify_url)
-            elif media_type == 2:  # single
-                process_single(queue_id, spotify_url)
+                album = sp.album(id)
+                process_album(queue_id, album, id)
+            # elif media_type == 2:  # single
+            #     process_single(queue_id, spotify_url)
 
             # Mark this item as processed
             c.execute("UPDATE media_queue SET parsed_status = 1, media_type = %s, updated_at = %s WHERE id = %s",
@@ -136,32 +130,34 @@ def detect_media_type(spotify_url):
     else:
         return 2
 
-def process_playlist(queue_id, spotify_url):
+def process_playlist(queue_id, playlist, id):
     try:
-        songs = spotdl.search([spotify_url])
+
+        songs = [(track['track']['external_urls']['spotify'], track['track']['name'], track['track']['id']) for track in playlist['tracks']['items']]
         logging.info(f"Processed playlist: ID {queue_id}, found {len(songs)} songs")
+        # logging.debug(songs)
         add_to_media_queue_items(queue_id, songs)
     except Exception as e:
         logging.error(f"Error processing playlist: ID {queue_id}, URL {spotify_url}, Error: {str(e)}")
         logging.debug(traceback.format_exc())
 
-def process_album(queue_id, spotify_url):
+def process_album(queue_id, playlist, id):
     try:
-        songs = spotdl.search([spotify_url])
+        songs = [(track['track']['external_urls']['spotify'], track['track']['name'], track['track']['id']) for track in playlist['tracks']['items']]
         logging.info(f"Processed album: ID {queue_id}, found {len(songs)} songs")
         add_to_media_queue_items(queue_id, songs)
     except Exception as e:
         logging.error(f"Error processing album: ID {queue_id}, URL {spotify_url}, Error: {str(e)}")
         logging.debug(traceback.format_exc())
 
-def process_single(queue_id, spotify_url):
-    try:
-        songs = spotdl.search([spotify_url])
-        logging.info(f"Processed single: ID {queue_id}, found {len(songs)} songs")
-        add_to_media_queue_items(queue_id, songs)
-    except Exception as e:
-        logging.error(f"Error processing single: ID {queue_id}, URL {spotify_url}, Error: {str(e)}")
-        logging.debug(traceback.format_exc())
+# def process_single(queue_id, spotify_url):
+#     try:
+#         songs = spotdl.search([spotify_url])
+#         logging.info(f"Processed single: ID {queue_id}, found {len(songs)} songs")
+#         add_to_media_queue_items(queue_id, songs)
+#     except Exception as e:
+#         logging.error(f"Error processing single: ID {queue_id}, URL {spotify_url}, Error: {str(e)}")
+#         logging.debug(traceback.format_exc())
 
 def add_to_media_queue_items(queue_id, songs):
     try:
@@ -171,7 +167,7 @@ def add_to_media_queue_items(queue_id, songs):
         now = datetime.now()
         for song in songs:
             c.execute("INSERT INTO media_queue_items (media_queue_id, media_url, parsed_status, created_at, updated_at) VALUES (%s, %s, 0, %s, %s)",
-                      (queue_id, song.url, now, now))
+                      (queue_id, song[0], now, now))
 
         conn.commit()
         conn.close()
@@ -187,42 +183,41 @@ def download_job():
         c = conn.cursor()
 
         c.execute("SELECT id, media_queue_id, media_url FROM media_queue_items WHERE parsed_status = 0")
-        items_to_download = c.fetchall()
+        item_to_download = c.fetchone()
 
-        for item in items_to_download:
-            item_id, queue_id, media_url = item
+        item_id, queue_id, media_url = item_to_download
 
-            c.execute("SELECT download_path FROM media_queue WHERE id = %s", (queue_id,))
-            queue_download_path = c.fetchone()[0]
+        c.execute("SELECT download_path FROM media_queue WHERE id = %s", (queue_id,))
+        queue_download_path = c.fetchone()[0]
 
-            if not queue_download_path:
-                queue_download_path = create_download_folder(queue_id)
-                c.execute("UPDATE media_queue SET download_path = %s WHERE id = %s", (queue_download_path, queue_id))
+        if not queue_download_path:
+            queue_download_path = create_download_folder(queue_id)
+            c.execute("UPDATE media_queue SET download_path = %s WHERE id = %s", (queue_download_path, queue_id))
 
-            c.execute("UPDATE media_queue_items SET parsed_status = 1, download_started_at = %s, updated_at = %s WHERE id = %s",
-                      (datetime.now(), datetime.now(), item_id))
+        c.execute("UPDATE media_queue_items SET parsed_status = 1, download_started_at = %s, updated_at = %s WHERE id = %s",
+                    (datetime.now(), datetime.now(), item_id))
+        conn.commit()
+
+        try:
+            # check if youtube cookies
+            if os.path.exists(youtube_cookies_path):
+                os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path} --cookie-file {youtube_cookies_path}")
+            else:
+                os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path}")
+
+            c.execute("UPDATE media_queue_items SET parsed_status = 3, download_finished_at = %s, updated_at = %s, download_path = %s WHERE id = %s",
+                        (datetime.now(), datetime.now(), queue_download_path, item_id))
             conn.commit()
 
-            try:
-                # check if youtube cookies
-                if os.path.exists(youtube_cookies_path):
-                    os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path} --cookie-file {youtube_cookies_path}")
-                else:
-                    os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path}")
+            logging.info(f"Successfully downloaded: Item ID {item_id}, URL {media_url}")
 
-                c.execute("UPDATE media_queue_items SET parsed_status = 3, download_finished_at = %s, updated_at = %s, download_path = %s WHERE id = %s",
-                          (datetime.now(), datetime.now(), queue_download_path, item_id))
-                conn.commit()
-
-                logging.info(f"Successfully downloaded: Item ID {item_id}, URL {media_url}")
-
-                check_queue_status(queue_id)
-            except Exception as e:
-                logging.error(f"Error downloading {media_url}: {str(e)}")
-                logging.debug(traceback.format_exc())
-                c.execute("UPDATE media_queue_items SET parsed_status = 9, updated_at = %s WHERE id = %s",
-                          (datetime.now(), item_id))
-                conn.commit()
+            check_queue_status(queue_id)
+        except Exception as e:
+            logging.error(f"Error downloading {media_url}: {str(e)}")
+            logging.debug(traceback.format_exc())
+            c.execute("UPDATE media_queue_items SET parsed_status = 9, updated_at = %s WHERE id = %s",
+                        (datetime.now(), item_id))
+            conn.commit()
 
         conn.close()
     except Exception as e:
@@ -273,13 +268,13 @@ def main():
             process_media_queue()
             logging.info("Running download job...")
             download_job()
-            logging.info("Waiting for 15 seconds before next iteration...")
-            time.sleep(15)  # Wait for 60 seconds before the next iteration
+            logging.info("Waiting for 3 seconds before next iteration...")
+            time.sleep(3)  # Wait for 60 seconds before the next iteration
         except Exception as e:
             logging.error(f"Error in main loop: {str(e)}")
             logging.debug(traceback.format_exc())
-            logging.info("Waiting for 5 seconds before retrying...")
-            time.sleep(5)
+            logging.info("Waiting for 10 seconds before retrying...")
+            time.sleep(10)
 
 if __name__ == "__main__":
     main()

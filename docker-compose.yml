@@ -16,7 +16,7 @@ services:
       - .:/app
       - ./spotify_downloader.db:/app/spotify_downloader.db
       # make it work with our azuracast environment
-      # - ../media/:/media
+      - ../media/:/media
     depends_on:
       - database
 
@@ -33,22 +33,22 @@ services:
       - 6532:5432
     restart: unless-stopped
   
-  # pgadmin:
-  #   container_name: pgadmin_container
-  #   image: dpage/pgadmin4
-  #   environment:
-  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin4@pgadmin.org}
-  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
-  #     PGADMIN_CONFIG_SERVER_MODE: 'False'
-  #   depends_on:
-  #     - database
-  #   volumes:
-  #      - pgadmin:/var/lib/pgadmin
+  pgadmin:
+    container_name: pgadmin_container
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin4@pgadmin.org}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    depends_on:
+      - database
+    volumes:
+       - pgadmin:/var/lib/pgadmin
 
-  #   ports:
-  #     - "${PGADMIN_PORT:-5050}:80"
-  #   restart: unless-stopped
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    restart: unless-stopped
 
 volumes:
     postgres:
-    # pgadmin:
+    pgadmin:

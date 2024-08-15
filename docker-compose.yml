@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   web:
     build: .
@@ -19,3 +17,38 @@ services:
       - ./spotify_downloader.db:/app/spotify_downloader.db
       # make it work with our azuracast environment
       # - ../media/:/media
+    depends_on:
+      - database
+
+  database:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=mydownloader
+      - PGDATA=/data/postgres
+    volumes:
+       - postgres:/data/postgres
+    ports:
+      - 6532:5432
+    restart: unless-stopped
+  
+  # pgadmin:
+  #   container_name: pgadmin_container
+  #   image: dpage/pgadmin4
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin4@pgadmin.org}
+  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+  #     PGADMIN_CONFIG_SERVER_MODE: 'False'
+  #   depends_on:
+  #     - database
+  #   volumes:
+  #      - pgadmin:/var/lib/pgadmin
+
+  #   ports:
+  #     - "${PGADMIN_PORT:-5050}:80"
+  #   restart: unless-stopped
+
+volumes:
+    postgres:
+    # pgadmin:

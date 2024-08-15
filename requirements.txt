@@ -1,3 +1,4 @@
 Flask
 spotdl
 python-dotenv
+psycopg2-binary

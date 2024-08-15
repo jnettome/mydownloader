@@ -1,4 +1,4 @@
-import psycopg2
+import sqlite3
 import os
 import time
 from datetime import datetime
@@ -13,7 +13,7 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 
-youtube_cookies_path = os.path.join(os.getcwd(), 'ytcookies.txt')
+youtube_cookies_path =  os.path.join(os.getcwd(), 'ytcookies.txt') # 'ytcookies.txt'
 
 # Initialize Spotdl only once
 spotdl = Spotdl(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
@@ -21,43 +21,34 @@ spotdl = Spotdl(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Database connection
-def get_connection():
-    return psycopg2.connect(
-        dbname=os.getenv('POSTGRES_DB'),
-        user=os.getenv('POSTGRES_USER'),
-        password=os.getenv('POSTGRES_PASSWORD'),
-        host=os.getenv('POSTGRES_HOST'),
-        port=os.getenv('POSTGRES_PORT')
-    )
-
 # Database setup
 def setup_database():
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
         c.execute('''CREATE TABLE IF NOT EXISTS media_queue
-                     (id SERIAL PRIMARY KEY,
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       spotify_url TEXT,
                       parsed_status INTEGER,
-                      created_at TIMESTAMPTZ,
-                      updated_at TIMESTAMPTZ,
+                      created_at TIMESTAMP,
+                      updated_at TIMESTAMP,
                       media_type INTEGER,
-                      download_started_at TIMESTAMPTZ,
-                      download_finished_at TIMESTAMPTZ,
+                      download_started_at TIMESTAMP,
+                      download_finished_at TIMESTAMP,
                       download_path TEXT)''')
 
         c.execute('''CREATE TABLE IF NOT EXISTS media_queue_items
-                     (id SERIAL PRIMARY KEY,
-                      media_queue_id INTEGER REFERENCES media_queue(id),
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      media_queue_id INTEGER,
                       media_url TEXT,
                       parsed_status INTEGER,
-                      created_at TIMESTAMPTZ,
-                      updated_at TIMESTAMPTZ,
-                      download_started_at TIMESTAMPTZ,
-                      download_finished_at TIMESTAMPTZ,
-                      download_path TEXT)''')
+                      created_at TIMESTAMP,
+                      updated_at TIMESTAMP,
+                      download_started_at TIMESTAMP,
+                      download_finished_at TIMESTAMP,
+                      download_path TEXT,
+                      FOREIGN KEY (media_queue_id) REFERENCES media_queue(id))''')
 
         conn.commit()
         conn.close()
@@ -69,14 +60,14 @@ def setup_database():
 # Media Queue processing
 def add_to_media_queue(spotify_url):
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
         now = datetime.now()
-        c.execute("INSERT INTO media_queue (spotify_url, parsed_status, created_at, updated_at) VALUES (%s, 0, %s, %s) RETURNING id",
+        c.execute("INSERT INTO media_queue (spotify_url, parsed_status, created_at, updated_at) VALUES (?, 0, ?, ?)",
                   (spotify_url, now, now))
 
-        queue_id = c.fetchone()[0]
+        queue_id = c.lastrowid
         conn.commit()
         conn.close()
 
@@ -86,14 +77,13 @@ def add_to_media_queue(spotify_url):
         logging.error(f"Error adding to media queue: {str(e)}")
         logging.debug(traceback.format_exc())
         return None
-
 def process_media_queue():
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
         # Select unprocessed items and lock them for this process by setting parsed_status to 2 (in progress)
-        c.execute("SELECT id, spotify_url FROM media_queue WHERE parsed_status = 0 LIMIT 1 FOR UPDATE SKIP LOCKED")
+        c.execute("SELECT id, spotify_url FROM media_queue WHERE parsed_status = 0 LIMIT 1")
         item = c.fetchone()
 
         if item:
@@ -101,7 +91,7 @@ def process_media_queue():
             logging.info(f"Processing media queue item: ID {queue_id}, URL {spotify_url}")
 
             # Mark this item as in progress
-            c.execute("UPDATE media_queue SET parsed_status = 2, updated_at = %s WHERE id = %s",
+            c.execute("UPDATE media_queue SET parsed_status = 2, updated_at = ? WHERE id = ?",
                       (datetime.now(), queue_id))
             conn.commit()
 
@@ -115,7 +105,7 @@ def process_media_queue():
                 process_single(queue_id, spotify_url)
 
             # Mark this item as processed
-            c.execute("UPDATE media_queue SET parsed_status = 1, media_type = %s, updated_at = %s WHERE id = %s",
+            c.execute("UPDATE media_queue SET parsed_status = 1, media_type = ?, updated_at = ? WHERE id = ?",
                       (media_type, datetime.now(), queue_id))
             conn.commit()
 
@@ -165,12 +155,12 @@ def process_single(queue_id, spotify_url):
 
 def add_to_media_queue_items(queue_id, songs):
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
         now = datetime.now()
         for song in songs:
-            c.execute("INSERT INTO media_queue_items (media_queue_id, media_url, parsed_status, created_at, updated_at) VALUES (%s, %s, 0, %s, %s)",
+            c.execute("INSERT INTO media_queue_items (media_queue_id, media_url, parsed_status, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
                       (queue_id, song.url, now, now))
 
         conn.commit()
@@ -183,7 +173,7 @@ def add_to_media_queue_items(queue_id, songs):
 # Download job
 def download_job():
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
         c.execute("SELECT id, media_queue_id, media_url FROM media_queue_items WHERE parsed_status = 0")
@@ -192,25 +182,33 @@ def download_job():
         for item in items_to_download:
             item_id, queue_id, media_url = item
 
-            c.execute("SELECT download_path FROM media_queue WHERE id = %s", (queue_id,))
+            c.execute("SELECT download_path FROM media_queue WHERE id = ?", (queue_id,))
             queue_download_path = c.fetchone()[0]
 
             if not queue_download_path:
                 queue_download_path = create_download_folder(queue_id)
-                c.execute("UPDATE media_queue SET download_path = %s WHERE id = %s", (queue_download_path, queue_id))
+                c.execute("UPDATE media_queue SET download_path = ? WHERE id = ?", (queue_download_path, queue_id))
 
-            c.execute("UPDATE media_queue_items SET parsed_status = 1, download_started_at = %s, updated_at = %s WHERE id = %s",
+            c.execute("UPDATE media_queue_items SET parsed_status = 1, download_started_at = ?, updated_at = ? WHERE id = ?",
                       (datetime.now(), datetime.now(), item_id))
             conn.commit()
 
             try:
+                # os.chdir(queue_queue_download_path)
+
                 # check if youtube cookies
                 if os.path.exists(youtube_cookies_path):
                     os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path} --cookie-file {youtube_cookies_path}")
                 else:
                     os.system(f"spotdl download {media_url} --format mp3 --output {queue_download_path}")
 
-                c.execute("UPDATE media_queue_items SET parsed_status = 3, download_finished_at = %s, updated_at = %s, download_path = %s WHERE id = %s",
+
+                #     os.system(f"spotdl download 'https://open.spotify.com/album/{id}'")  # Download the entire album
+                #     os.system(f"spotdl download 'https://open.spotify.com/track/{id}'")  # Download specific track
+                # Move back to the Music directory after each iteration
+                # os.chdir(music_directory)
+
+                c.execute("UPDATE media_queue_items SET parsed_status = 3, download_finished_at = ?, updated_at = ?, download_path = ? WHERE id = ?",
                           (datetime.now(), datetime.now(), queue_download_path, item_id))
                 conn.commit()
 
@@ -220,7 +218,7 @@ def download_job():
             except Exception as e:
                 logging.error(f"Error downloading {media_url}: {str(e)}")
                 logging.debug(traceback.format_exc())
-                c.execute("UPDATE media_queue_items SET parsed_status = 9, updated_at = %s WHERE id = %s",
+                c.execute("UPDATE media_queue_items SET parsed_status = 9, updated_at = ? WHERE id = ?",
                           (datetime.now(), item_id))
                 conn.commit()
 
@@ -242,14 +240,14 @@ def create_download_folder(queue_id):
 
 def check_queue_status(queue_id):
     try:
-        conn = get_connection()
+        conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
-        c.execute("SELECT COUNT(*) FROM media_queue_items WHERE media_queue_id = %s AND parsed_status != 3", (queue_id,))
+        c.execute("SELECT COUNT(*) FROM media_queue_items WHERE media_queue_id = ? AND parsed_status != 3", (queue_id,))
         unfinished_items = c.fetchone()[0]
 
         if unfinished_items == 0:
-            c.execute("UPDATE media_queue SET parsed_status = 3, download_finished_at = %s, updated_at = %s WHERE id = %s",
+            c.execute("UPDATE media_queue SET parsed_status = 3, download_finished_at = ?, updated_at = ? WHERE id = ?",
                       (datetime.now(), datetime.now(), queue_id))
             conn.commit()
             logging.info(f"All items in queue ID {queue_id} have been downloaded.")

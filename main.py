@@ -77,18 +77,23 @@ def add_to_media_queue(spotify_url):
         logging.error(f"Error adding to media queue: {str(e)}")
         logging.debug(traceback.format_exc())
         return None
-
 def process_media_queue():
     try:
         conn = sqlite3.connect('spotify_downloader.db')
         c = conn.cursor()
 
-        c.execute("SELECT id, spotify_url FROM media_queue WHERE parsed_status = 0")
-        unparsed_items = c.fetchall()
+        # Select unprocessed items and lock them for this process by setting parsed_status to 2 (in progress)
+        c.execute("SELECT id, spotify_url FROM media_queue WHERE parsed_status = 0 LIMIT 1")
+        item = c.fetchone()
 
-        for item in unparsed_items:
+        if item:
             queue_id, spotify_url = item
             logging.info(f"Processing media queue item: ID {queue_id}, URL {spotify_url}")
+
+            # Mark this item as in progress
+            c.execute("UPDATE media_queue SET parsed_status = 2, updated_at = ? WHERE id = ?",
+                      (datetime.now(), queue_id))
+            conn.commit()
 
             media_type = detect_media_type(spotify_url)
 
@@ -99,11 +104,14 @@ def process_media_queue():
             elif media_type == 2:  # single
                 process_single(queue_id, spotify_url)
 
+            # Mark this item as processed
             c.execute("UPDATE media_queue SET parsed_status = 1, media_type = ?, updated_at = ? WHERE id = ?",
                       (media_type, datetime.now(), queue_id))
             conn.commit()
 
             time.sleep(2)
+        else:
+            logging.info("No unprocessed items found in the media queue.")
 
         conn.close()
     except Exception as e:
